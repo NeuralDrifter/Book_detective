@@ -1,0 +1,33 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=Inter:wght@300;400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Cormorant Garamond", serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  
+  --color-brand-bg: #121110;
+  --color-brand-accent: #D4AF37;
+  --color-brand-paper: #1c1a18;
+}
+
+@layer base {
+  body {
+    @apply font-serif text-[#f3eee2] min-h-screen bg-[#121110] relative;
+    background-image: linear-gradient(rgba(18, 17, 16, 0.82), rgba(12, 11, 10, 0.92)), url('/assets/aistudio/library_noir_ff24dfda.webp');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+  }
+}
+
+.card-rounded {
+  @apply rounded-[32px] bg-[#1c1a18]/90 text-[#f3eee2] shadow-2xl border border-[#3a3530]/60 backdrop-blur-md;
+}
+
+.btn-primary {
+  @apply bg-[#C5A880] text-[#121110] font-sans font-semibold rounded-full px-6 py-2 transition-all hover:bg-[#D4AF37] hover:scale-[1.02] active:scale-95 shadow-lg;
+}
+
+.serif-italic {
+  @apply font-serif italic;
+}

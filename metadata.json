@@ -1,0 +1,8 @@
+{
+  "name": "Book Scribe",
+  "description": "An AI-powered detective tool to help you find that missing book from your childhood using vague clues, recipes, and plot points.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
