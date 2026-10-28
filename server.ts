@@ -15,7 +15,175 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
-  // API endpoint for finding books server-side with support for excluding previous results
+  // API endpoint for catalog verification via Open Library
+  app.post('/api/books/verify', async (req, res) => {
+    try {
+      const { title, author } = req.body;
+      if (!title) {
+        return res.json({ verificationStatus: 'unavailable' });
+      }
+
+      const searchQuery = encodeURIComponent(`${title} ${author || ''}`);
+      const response = await fetch(`https://openlibrary.org/search.json?q=${searchQuery}&limit=3`, {
+        signal: AbortSignal.timeout(6000)
+      });
+      
+      if (!response.ok) {
+        return res.json({ verificationStatus: 'unavailable' });
+      }
+
+      const data = await response.json();
+      const docs = data.docs || [];
+
+      if (docs.length === 0) {
+        return res.json({ verificationStatus: 'not_found' });
+      }
+
+      const matchedDoc = docs[0];
+      const matchTitle = matchedDoc.title || '';
+      const matchAuthor = (matchedDoc.author_name || [])[0] || '';
+
+      const titleLower = title.toLowerCase();
+      const matchTitleLower = matchTitle.toLowerCase();
+      
+      if (matchTitleLower.includes(titleLower) || titleLower.includes(matchTitleLower)) {
+        return res.json({
+          verificationStatus: 'catalog_match',
+          verificationSource: 'Open Library',
+          verificationUrl: `https://openlibrary.org${matchedDoc.key || ''}`,
+          matchedTitle: matchTitle,
+          matchedAuthor: matchAuthor,
+        });
+      }
+
+      return res.json({ verificationStatus: 'not_found' });
+    } catch (error) {
+      console.error('Error verifying book:', error);
+      res.json({ verificationStatus: 'unavailable' });
+    }
+  });
+
+  // API endpoint for Hybrid Investigation
+  app.post('/api/books/investigate', async (req, res) => {
+    try {
+      const { query, clues, rejectedCandidateIds, excludedTitles, answerHistory, round } = req.body;
+      if (!query || typeof query !== 'string') {
+        return res.status(400).json({ error: 'Query string is required' });
+      }
+
+      let contextPrompt = `Original Memory Description: "${query}"\n`;
+      if (Array.isArray(clues) && clues.length > 0) {
+        contextPrompt += `Extracted Clues so far:\n${clues.map((c: any) => `- [${c.certainty}] ${c.description}`).join('\n')}\n`;
+      }
+      if (Array.isArray(rejectedCandidateIds) && rejectedCandidateIds.length > 0) {
+        contextPrompt += `Rejected Candidate IDs (Do not suggest these again): ${rejectedCandidateIds.join(', ')}\n`;
+      }
+      if (Array.isArray(excludedTitles) && excludedTitles.length > 0) {
+        contextPrompt += `Excluded Titles (Do not suggest these): ${excludedTitles.join(', ')}\n`;
+      }
+      if (Array.isArray(answerHistory) && answerHistory.length > 0) {
+        contextPrompt += `Previous Answers given by user:\n${answerHistory.join('\n')}\n`;
+      }
+      contextPrompt += `Current Investigation Round: ${round || 1}\n`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: `You are Book Detective, an expert literary investigator specializing in identifying real published books from incomplete, uncertain, fragmented, or distorted memories.
+        
+        ${contextPrompt}
+
+        Follow the investigative principles:
+        1. Treat memories as evidence, not guaranteed facts.
+        2. Identify distinctive clues before generating hypotheses.
+        3. Consider obscure, historical, regional, independently published, translated, and out-of-print works. Do not limit candidates to books present in major digital catalogs.
+        4. Generate plausible real-book candidates (up to 5) with detailed supporting evidence, conflicting evidence, and uncertainties.
+        5. Ask ONE high-information follow-up question with 2-4 answer options if additional evidence would improve the investigation. If no useful follow-up question is needed, omit it.
+
+        Return a JSON object matching this schema:
+        {
+          "clues": [
+            { "id": "...", "description": "...", "certainty": "explicit" | "uncertain" | "inferred", "source": "original" | "follow_up" }
+          ],
+          "candidates": [
+            {
+              "id": "...",
+              "title": "...",
+              "author": "...",
+              "year": "...",
+              "summary": "...",
+              "whyItMatches": "...",
+              "supportingEvidence": ["..."],
+              "conflictingEvidence": ["..."],
+              "uncertainties": ["..."],
+              "memoryMatchScore": 0.95
+            }
+          ],
+          "nextQuestion": {
+            "question": "...",
+            "options": ["...", "..."]
+          }
+        }`,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              clues: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.STRING },
+                    description: { type: Type.STRING },
+                    certainty: { type: Type.STRING, enum: ["explicit", "uncertain", "inferred"] },
+                    source: { type: Type.STRING, enum: ["original", "follow_up"] },
+                  },
+                  required: ["id", "description", "certainty", "source"],
+                },
+              },
+              candidates: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    id: { type: Type.STRING },
+                    title: { type: Type.STRING },
+                    author: { type: Type.STRING },
+                    year: { type: Type.STRING },
+                    summary: { type: Type.STRING },
+                    whyItMatches: { type: Type.STRING },
+                    supportingEvidence: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    conflictingEvidence: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    uncertainties: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    memoryMatchScore: { type: Type.NUMBER },
+                  },
+                  required: ["id", "title", "summary", "whyItMatches", "supportingEvidence", "conflictingEvidence", "uncertainties", "memoryMatchScore"],
+                },
+              },
+              nextQuestion: {
+                type: Type.OBJECT,
+                properties: {
+                  question: { type: Type.STRING },
+                  options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                },
+                required: ["question", "options"],
+              },
+            },
+            required: ["clues", "candidates"],
+          },
+        },
+      });
+
+      const responseText = response.text || '{}';
+      const parsed = JSON.parse(responseText);
+      res.json(parsed);
+    } catch (error) {
+      console.error('Error in /api/books/investigate:', error);
+      res.status(500).json({ error: 'Failed to investigate book' });
+    }
+  });
+
+  // Backward compatibility endpoint /api/books
   app.post('/api/books', async (req, res) => {
     try {
       const { query, excludedTitles } = req.body;
@@ -25,7 +193,7 @@ async function startServer() {
 
       let exclusionInstruction = '';
       if (Array.isArray(excludedTitles) && excludedTitles.length > 0) {
-        exclusionInstruction = `\n\nCRITICAL: Do NOT include any of the following books in your results because they were already tried and were incorrect:\n- ${excludedTitles.join('\n- ')}\n\nFind completely DIFFERENT alternative book matches.`;
+        exclusionInstruction = `\n\nCRITICAL: Do NOT include any of the following books in your results because they were already tried:\n- ${excludedTitles.join('\n- ')}\n\nFind completely DIFFERENT alternative book matches.`;
       }
 
       const response = await ai.models.generateContent({
@@ -33,7 +201,7 @@ async function startServer() {
         contents: `You are an objective literary detective. Analyze this book description and find the best matching books, novel series, fantasy, sci-fi, middle-grade, or classics from any decade: "${query}". 
         ${exclusionInstruction}
         
-        Return a diverse list of potential book matches in JSON format.`,
+        Return a list of potential book matches with title, author, year, summary, whyItMatches, and confidence score.`,
         config: {
           responseMimeType: 'application/json',
           responseSchema: {
