@@ -6,13 +6,63 @@ export interface InvestigationResult {
   nextQuestion?: InvestigationQuestion;
 }
 
+export interface DetectiveModelOption {
+  id: string;
+  apiModel: string;
+  name: string;
+  isPaid?: boolean;
+  description: string;
+}
+
+export const AVAILABLE_MODELS: DetectiveModelOption[] = [
+  {
+    id: 'default',
+    apiModel: 'gemini-3.8-flash',
+    name: 'Default (Gemini 3.8 Flash)',
+    description: 'Recommended default model for balanced literary recall and multi-clue deduction.',
+  },
+  {
+    id: 'gemini-3.8-flash',
+    apiModel: 'gemini-3.8-flash',
+    name: 'Gemini 3.8 Flash',
+    description: 'Fast, high-precision literary recall and multi-clue deduction.',
+  },
+  {
+    id: 'gemini-3.5-flash-lite',
+    apiModel: 'gemini-3.5-flash-lite',
+    name: 'Gemini 3.5 Flash Lite',
+    description: 'Lightweight, rapid clue extraction and candidate generation.',
+  },
+  {
+    id: 'gemini-3.6-flash',
+    apiModel: 'gemini-3.6-flash',
+    name: 'Gemini 3.6 Flash',
+    description: 'Balanced speed and associative plot-fragment matching.',
+  },
+  {
+    id: 'gemini-3.1-flash-lite',
+    apiModel: 'gemini-3.1-flash-lite',
+    name: 'Gemini 3.1 Flash Lite',
+    description: 'Ultra-fast, lightweight model for quick book clue triage.',
+  },
+  {
+    id: 'gemini-3-flash-preview',
+    apiModel: 'gemini-3-flash-preview',
+    name: 'Gemini 3 Flash Preview',
+    description: 'Preview Flash model with sharp plot-fragment matching.',
+  },
+];
+
+export type DetectiveModelId = string;
+
 export async function investigateBook(
   query: string,
   clues: DetectiveClue[] = [],
   rejectedCandidateIds: string[] = [],
   excludedTitles: string[] = [],
   answerHistory: string[] = [],
-  round: number = 1
+  round: number = 1,
+  model: string = 'gemini-3.8-flash'
 ): Promise<InvestigationResult> {
   try {
     const res = await fetch('/api/books/investigate', {
@@ -27,6 +77,7 @@ export async function investigateBook(
         excludedTitles,
         answerHistory,
         round,
+        model,
       }),
     });
 
@@ -35,7 +86,6 @@ export async function investigateBook(
     }
 
     const data = await res.json();
-    // Ensure all candidates have default verification status pending
     const candidates = (data.candidates || []).map((c: any, index: number) => ({
       ...c,
       id: c.id || `candidate-${index}-${Date.now()}`,

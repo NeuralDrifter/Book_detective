@@ -8,8 +8,14 @@ import { fileURLToPath } from 'url';
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const apiKey = process.env.GEMINI_API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    },
+  },
+});
 
 async function startServer() {
   const app = express();
@@ -63,13 +69,25 @@ async function startServer() {
     }
   });
 
+  const ALLOWED_MODELS: Record<string, string> = {
+    'default': 'gemini-3.8-flash',
+    'gemini-3.8-flash': 'gemini-3.8-flash',
+    'gemini-3.5-flash-lite': 'gemini-3.5-flash-lite',
+    'gemini-3.6-flash': 'gemini-3.6-flash',
+    'gemini-3.1-flash-lite': 'gemini-3.1-flash-lite',
+    'gemini-3-flash-preview': 'gemini-3-flash-preview',
+    'gemini-2.5-flash': 'gemini-2.5-flash',
+  };
+
   // API endpoint for Hybrid Investigation
   app.post('/api/books/investigate', async (req, res) => {
     try {
-      const { query, clues, rejectedCandidateIds, excludedTitles, answerHistory, round } = req.body;
+      const { query, clues, rejectedCandidateIds, excludedTitles, answerHistory, round, model } = req.body;
       if (!query || typeof query !== 'string') {
         return res.status(400).json({ error: 'Query string is required' });
       }
+
+      const requestedModel = (model && ALLOWED_MODELS[model]) ? ALLOWED_MODELS[model] : 'gemini-3.8-flash';
 
       let contextPrompt = `Original Memory Description: "${query}"\n`;
       if (Array.isArray(clues) && clues.length > 0) {
@@ -86,9 +104,7 @@ async function startServer() {
       }
       contextPrompt += `Current Investigation Round: ${round || 1}\n`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `You are Book Detective, an expert literary investigator specializing in identifying real published books from incomplete, uncertain, fragmented, or distorted memories.
+      const contentsPrompt = `You are Book Detective, an expert literary investigator specializing in identifying real published books from incomplete, uncertain, fragmented, or distorted memories.
         
         ${contextPrompt}
 
@@ -122,57 +138,81 @@ async function startServer() {
             "question": "...",
             "options": ["...", "..."]
           }
-        }`,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              clues: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    description: { type: Type.STRING },
-                    certainty: { type: Type.STRING, enum: ["explicit", "uncertain", "inferred"] },
-                    source: { type: Type.STRING, enum: ["original", "follow_up"] },
-                  },
-                  required: ["id", "description", "certainty", "source"],
-                },
-              },
-              candidates: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    id: { type: Type.STRING },
-                    title: { type: Type.STRING },
-                    author: { type: Type.STRING },
-                    year: { type: Type.STRING },
-                    summary: { type: Type.STRING },
-                    whyItMatches: { type: Type.STRING },
-                    supportingEvidence: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    conflictingEvidence: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    uncertainties: { type: Type.ARRAY, items: { type: Type.STRING } },
-                    memoryMatchScore: { type: Type.NUMBER },
-                  },
-                  required: ["id", "title", "summary", "whyItMatches", "supportingEvidence", "conflictingEvidence", "uncertainties", "memoryMatchScore"],
-                },
-              },
-              nextQuestion: {
+        }`;
+
+      const generationConfig = {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            clues: {
+              type: Type.ARRAY,
+              items: {
                 type: Type.OBJECT,
                 properties: {
-                  question: { type: Type.STRING },
-                  options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  id: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  certainty: { type: Type.STRING, enum: ["explicit", "uncertain", "inferred"] },
+                  source: { type: Type.STRING, enum: ["original", "follow_up"] },
                 },
-                required: ["question", "options"],
+                required: ["id", "description", "certainty", "source"],
               },
             },
-            required: ["clues", "candidates"],
+            candidates: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  id: { type: Type.STRING },
+                  title: { type: Type.STRING },
+                  author: { type: Type.STRING },
+                  year: { type: Type.STRING },
+                  summary: { type: Type.STRING },
+                  whyItMatches: { type: Type.STRING },
+                  supportingEvidence: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  conflictingEvidence: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  uncertainties: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  memoryMatchScore: { type: Type.NUMBER },
+                },
+                required: ["id", "title", "summary", "whyItMatches", "supportingEvidence", "conflictingEvidence", "uncertainties", "memoryMatchScore"],
+              },
+            },
+            nextQuestion: {
+              type: Type.OBJECT,
+              properties: {
+                question: { type: Type.STRING },
+                options: { type: Type.ARRAY, items: { type: Type.STRING } },
+              },
+              required: ["question", "options"],
+            },
           },
+          required: ["clues", "candidates"],
         },
-      });
+      };
+
+      let response;
+      try {
+        response = await ai.models.generateContent({
+          model: requestedModel,
+          contents: contentsPrompt,
+          config: generationConfig,
+        });
+      } catch (primaryErr) {
+        console.warn(`Model ${requestedModel} returned an error, falling back to gemini-3-flash-preview:`, primaryErr);
+        try {
+          response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: contentsPrompt,
+            config: generationConfig,
+          });
+        } catch (fallbackErr) {
+          response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: contentsPrompt,
+            config: generationConfig,
+          });
+        }
+      }
 
       const responseText = response.text || '{}';
       const parsed = JSON.parse(responseText);
