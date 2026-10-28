@@ -288,26 +288,28 @@ export default function App() {
             >
               <div className="absolute top-0 right-0 w-36 h-36 bg-[#D4AF37]/5 rounded-bl-full pointer-events-none" />
               
-              <div className="relative group mb-6">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#8c8270] group-focus-within:text-[#D4AF37] transition-colors" size={22} />
-                <textarea 
-                  rows={3}
-                  placeholder="Describe your memory: e.g., 'A young boy who becomes a wizard, travels with demons to different dimensions, was a thief before...'"
-                  className="w-full pl-12 pr-4 py-4 rounded-2xl bg-[#121110]/80 border border-[#3a3530] text-[#f3eee2] placeholder-[#736a59] focus:bg-[#121110] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 transition-all text-base md:text-lg font-sans outline-none resize-none shadow-inner"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleInvestigation(query, false);
-                    }
-                  }}
-                />
-                <div className="absolute right-3 bottom-3 flex items-center gap-2">
+              <div className="space-y-4 mb-6">
+                <div className="relative group">
+                  <Search className="absolute left-4 top-4 text-[#8c8270] group-focus-within:text-[#D4AF37] transition-colors" size={22} />
+                  <textarea 
+                    rows={4}
+                    placeholder="Describe your memory: e.g., 'A young boy who becomes a wizard, travels with demons to different dimensions, was a thief before...'"
+                    className="w-full pl-12 pr-4 pt-4 pb-4 rounded-2xl bg-[#121110]/80 border border-[#3a3530] text-[#f3eee2] placeholder-[#736a59] focus:bg-[#121110] focus:border-[#D4AF37] focus:ring-2 focus:ring-[#D4AF37]/20 transition-all text-base md:text-lg font-sans outline-none resize-none shadow-inner"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleInvestigation(query, false);
+                      }
+                    }}
+                  />
+                </div>
+                <div className="flex justify-end">
                   <button 
                     onClick={() => handleInvestigation(query, false)}
                     disabled={loading || !query.trim()}
-                    className="btn-primary flex items-center gap-2 py-3 px-6 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="btn-primary flex items-center gap-2 py-3 px-8 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {loading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
                     <span>{loading ? 'Investigating Clues...' : 'Start Investigation'}</span>
